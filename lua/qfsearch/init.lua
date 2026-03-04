@@ -25,23 +25,35 @@ function M.search(keyword)
 
   vim.notify("Scanning " .. #qflist .. " files for '" .. keyword .. "'...", vim.log.levels.INFO)
 
-  -- Run asynchronously so the UI doesn't completely freeze
   vim.schedule(function()
     local filtered = {}
 
     for _, item in ipairs(qflist) do
       local bufnr = item.bufnr
       if bufnr and bufnr ~= 0 then
-        -- Force load the buffer (crucial for jdt:// files)
+        -- Force load the buffer
         vim.fn.bufload(bufnr)
 
         local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
-        -- Search line by line
-        for _, line in ipairs(lines) do
-          if line:find(keyword, 1, true) then
-            table.insert(filtered, item)
-            break
+        -- Search line by line (ipairs gives us the line number as 'lnum')
+        for lnum, line in ipairs(lines) do
+          -- string.find returns the starting column index if a match is found
+          local col_start = line:find(keyword, 1, true)
+
+          if col_start then
+            -- Create a copy of the item so we don't mutate the old list directly
+            local matched_item = vim.deepcopy(item)
+
+            -- Update the coordinates to jump to the exact location
+            matched_item.lnum = lnum
+            matched_item.col = col_start
+
+            -- Update the preview text shown in the quickfix window (trimming whitespace)
+            matched_item.text = line:match("^%s*(.-)%s*$") or line
+
+            table.insert(filtered, matched_item)
+            break -- Move to the next file after finding the first match
           end
         end
       end
@@ -51,7 +63,6 @@ function M.search(keyword)
     vim.fn.setqflist(filtered)
     vim.notify("QfSearch: Kept " .. #filtered .. " files.", vim.log.levels.INFO)
 
-    -- Open the quickfix window if configured and we have results
     if M.config.auto_open and #filtered > 0 then
       vim.cmd("copen")
     end
